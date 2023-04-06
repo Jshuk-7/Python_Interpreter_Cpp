@@ -1,8 +1,11 @@
+#include <unordered_map>
 #include <filesystem>
+#include <functional>
 #include <iostream>
 #include <fstream>
 #include <variant>
 #include <string>
+#include <vector>
 
 #define DEFERED_EXIT(code, ...) { printf(__VA_ARGS__); __debugbreak(); return (code); }
 
@@ -76,6 +79,36 @@ struct Token
 	}
 };
 
+Token print(const std::vector<Token>& args)
+{
+	std::cout << std::get<std::string>(args[0].Value) << '\n';
+	return {};
+}
+
+static std::unordered_map<std::string, std::function<Token(const std::vector<Token>&)>> s_FuncMap =
+{
+	{ "print", print },
+};
+
+class FuncDef
+{
+public:
+	FuncDef(const std::string& name, const std::vector<Token>& args)
+		: m_Name(name), m_Args(args) { }
+
+	Token Execute()
+	{
+		if (s_FuncMap.contains(m_Name))
+			return s_FuncMap.at(m_Name)(m_Args);
+
+		return {};
+	}
+
+private:
+	std::string m_Name;
+	std::vector<Token> m_Args;
+};
+
 class Lexer
 {
 public:
@@ -84,17 +117,16 @@ public:
 
 	void TrimLeft()
 	{
-		while (CursorActive() && isspace(m_Source[m_Cursor]))
+		while (CursorActive() && isspace(Current()))
 			ShiftRight();
 	}
 
 	bool CursorActive() const { return m_Cursor < m_Source.size(); }
 	bool CursorAtEnd() const { return !CursorActive(); }
 
-	CursorPosition GetCursorPos() const
-	{
-		return { m_Filename, m_Row, m_Cursor - m_LineStart };
-	}
+	CursorPosition GetCursorPos() const { return { m_Filename, m_Row, m_Cursor - m_LineStart }; }
+
+	char Current() const { return m_Source[m_Cursor]; }
 
 	void ShiftRight()
 	{
@@ -103,7 +135,7 @@ public:
 
 		m_Cursor++;
 
-		if (m_Source[m_Cursor] == '\n')
+		if (Current() == '\n')
 		{
 			m_LineStart = m_Cursor;
 			m_Row++;
@@ -112,23 +144,16 @@ public:
 
 	void DropLine()
 	{
-		while (m_Source[m_Cursor] != '\n')
+		while (Current() != '\n')
 			ShiftRight();
 		
-		if (m_Source[m_Cursor] == '\n')
+		if (Current() == '\n')
 			ShiftRight();
 	}
 
-	Token NextToken()
+	Token ParseToken()
 	{
-		TrimLeft();
-
-		while (m_Source[m_Cursor] == '#')
-		{
-			DropLine();
-		}
-
-		char first = m_Source[m_Cursor];
+		char first = Current();
 		CursorPosition position = GetCursorPos();
 		uint32_t start = m_Cursor;
 
@@ -146,10 +171,10 @@ public:
 		{
 			ShiftRight();
 
-			while (m_Source[m_Cursor] != '"')
+			while (Current() != '"')
 				ShiftRight();
 
-			if (m_Source[m_Cursor] != '"')
+			if (Current() != '"')
 			{
 				COMPILER_ERROR("Error: %s, expected end of string literal", position.Display().c_str());
 			}
@@ -157,6 +182,11 @@ public:
 			{
 				ShiftRight();
 				std::string value = m_Source.substr(start, m_Cursor - start);
+
+				// remove quotes
+				value.erase(value.begin());
+				value.erase(value.end() - 1);
+				
 				return Token(TokenType::String, value, position);
 			}
 		}
@@ -164,7 +194,7 @@ public:
 		{
 			ShiftRight();
 
-			while (isdigit(m_Source[m_Cursor]))
+			while (isdigit(Current()))
 				ShiftRight();
 
 			int32_t value = std::atoi(m_Source.substr(start, m_Cursor - start).c_str());
@@ -174,19 +204,52 @@ public:
 		{
 			ShiftRight();
 
-			while (isalnum(m_Source[m_Cursor]))
+			while (isalnum(Current()))
 				ShiftRight();
 
-			std::string value = m_Source.substr(start, m_Cursor - start);
-			return Token(TokenType::Name, value, position);
+			std::string funName = m_Source.substr(start, m_Cursor - start);
+			if (s_FuncMap.contains(funName))
+			{
+				std::vector<Token> args;
+				Token oparen = ParseToken();
+				Token arg = ParseToken();
+
+				while (arg.Type != TokenType::CParen)
+				{
+					args.push_back(arg);
+					arg = ParseToken();
+				}
+
+				delete m_LastFunc;
+				m_LastFunc = new FuncDef(funName, args);
+			}
+
+			return Token(TokenType::Name, funName, position);
 		}
 
 		return {};
 	}
 
+	Token NextToken()
+	{
+		TrimLeft();
+
+		while (Current() == '#')
+			DropLine();
+
+		return ParseToken();
+	}
+
+	FuncDef* NextFunc()
+	{
+		return m_LastFunc;
+	}
+
 private:
-	std::string m_Source = "";
+	const std::string& m_Source;
 	std::string m_Filename = "";
+
+	FuncDef* m_LastFunc = nullptr;
 
 	uint32_t m_Cursor = 0;
 	uint32_t m_LineStart = 0;
@@ -208,19 +271,29 @@ int main()
 		DEFERED_EXIT(-1, "File was empty!\n");
 
 	std::string contents = "";
+	contents.resize(size);
 	stream.seekg(0, std::ios::beg);
 	stream.read(contents.data(), size);
 
 	std::string filename = std::filesystem::path(filepath).filename().string();
 
-	Lexer lexer = Lexer(filename, contents.c_str());
+	Lexer lexer = Lexer(filename, contents);
 	Token token = lexer.NextToken();
 
 	while (token)
 	{
-		if (token.Type == TokenType::Name)
+		const bool hasIdent = token.Type == TokenType::Name;
+		const bool isFunc = token.Type == TokenType::Number ? false : s_FuncMap.contains(std::get<std::string>(token.Value));
+
+		if (hasIdent && isFunc)
 		{
-			std::cout << token << '\n';
+			FuncDef* func = lexer.NextFunc();
+			Token returnValue = func->Execute();
+
+			if (returnValue.Type != TokenType::None)
+			{
+				std::cout << returnValue << '\n';
+			}
 		}
 
 		token = lexer.NextToken();
