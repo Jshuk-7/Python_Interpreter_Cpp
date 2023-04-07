@@ -103,9 +103,22 @@ Token print(const std::vector<Token>& args)
 	return {};
 }
 
+Token typeof(const std::vector<Token>& args)
+{
+	std::string typeName = "";
+	switch (args[0].Value.index())
+	{
+		case 0: typeName = "int32_t";                 break;
+		case 1: typeName = "std::basic_string<char>"; break;
+	}
+
+	return Token(TokenType::String, typeName, args[0].Position);
+}
+
 static std::unordered_map<std::string, std::function<Token(const std::vector<Token>&)>> s_FuncMap =
 {
 	{ "print", print },
+	{ "typeof", typeof },
 };
 
 class FuncDef
@@ -170,130 +183,135 @@ public:
 			ShiftRight();
 	}
 
+	Token VisitNode(Token startingTok, const CursorPosition& position)
+	{
+		uint32_t i = 1;
+
+		while (CursorActive() && std::isspace(m_Source[m_Cursor + i]))
+		{
+			i++;
+		}
+
+		if (CursorAtEnd())
+			return startingTok;
+
+		const std::string operators = "+-*/=";
+		char potentialOp = m_Source[m_Cursor + i];
+
+		if (size_t opIndex = operators.find(potentialOp); opIndex != std::string::npos)
+		{
+			ShiftRight();
+
+			switch (startingTok.Value.index())
+			{
+				case 0:
+				{
+					switch (opIndex)
+					{
+						case 0:
+						{
+							int32_t lhs = std::get<int32_t>(startingTok.Value);
+							Token op = NextToken();
+							TrimLeft();
+							ShiftRight();
+							Token nextTok = NextToken();
+							int32_t rhs = std::get<int32_t>(nextTok.Value);
+							int32_t result = lhs + rhs;
+							return Token(TokenType::Number, result, position);
+						}
+						case 1:
+						{
+							int32_t lhs = std::get<int32_t>(startingTok.Value);
+							Token op = NextToken();
+							TrimLeft();
+							ShiftRight();
+							Token nextTok = NextToken();
+							int32_t rhs = std::get<int32_t>(nextTok.Value);
+							int32_t result = lhs - rhs;
+							return Token(TokenType::Number, result, position);
+						}
+						case 2:
+						{
+							int32_t lhs = std::get<int32_t>(startingTok.Value);
+							Token op = NextToken();
+							TrimLeft();
+							ShiftRight();
+							Token nextTok = NextToken();
+							int32_t rhs = std::get<int32_t>(nextTok.Value);
+							int32_t result = lhs * rhs;
+							return Token(TokenType::Number, result, position);
+						}
+						case 3:
+						{
+							int32_t lhs = std::get<int32_t>(startingTok.Value);
+							Token op = NextToken();
+							TrimLeft();
+							ShiftRight();
+							Token nextTok = NextToken();
+							int32_t rhs = std::get<int32_t>(nextTok.Value);
+							ASSERT(rhs != 0, "Invalid denominator!");
+							int32_t result = lhs / rhs;
+							return Token(TokenType::Number, result, position);
+						}
+						case 4:
+						{
+							ASSERT(false, "int32_t->operator= not implemented yet");
+							break;
+						}
+					}
+
+					break;
+				}
+				case 1:
+				{
+					switch (opIndex)
+					{
+						case 0:
+						{
+							std::string lhs = std::get<std::string>(startingTok.Value);
+							Token op = NextToken();
+							TrimLeft();
+							ShiftRight();
+							Token nextTok = NextToken();
+							std::string rhs = std::get<std::string>(nextTok.Value);
+							std::string result = lhs + rhs;
+							return Token(TokenType::String, result, position);
+						}
+						case 1:
+						{
+							break;
+						}
+						case 2:
+						{
+							break;
+						}
+						case 3:
+						{
+							break;
+						}
+						case 4:
+						{
+							ASSERT(false, "std::string->operator= not implemented yet");
+							break;
+						}
+					}
+
+					break;
+				}
+			}
+		}
+
+		return startingTok;
+	}
+
 	Token ParseToken()
 	{
+		if (CursorAtEnd())
+			return {};
+
 		char first = Current();
 		CursorPosition position = GetCursorPos();
 		const uint32_t start = m_Cursor;
-
-		const std::string operators = "+-*/=";
-
-		auto checkForExpr = [&](Token startingTok)
-		{
-			uint32_t i = 1;
-
-			while (std::isspace(m_Source[m_Cursor + i]))
-			{
-				i++;
-			}
-
-			char potentialOp = m_Source[m_Cursor + i];
-
-			if (size_t opIndex = operators.find(potentialOp); opIndex != std::string::npos)
-			{
-				ShiftRight();
-
-				switch (startingTok.Value.index())
-				{
-					case 0:
-					{
-						switch (opIndex)
-						{
-							case 0:
-							{
-								int32_t lhs = std::get<int32_t>(startingTok.Value);
-								Token op = NextToken();
-								TrimLeft();
-								ShiftRight();
-								Token nextTok = NextToken();
-								int32_t rhs = std::get<int32_t>(nextTok.Value);
-								int32_t result = lhs + rhs;
-								return Token(TokenType::Number, result, position);
-							}
-							case 1:
-							{
-								int32_t lhs = std::get<int32_t>(startingTok.Value);
-								Token op = NextToken();
-								TrimLeft();
-								ShiftRight();
-								Token nextTok = NextToken();
-								int32_t rhs = std::get<int32_t>(nextTok.Value);
-								int32_t result = lhs - rhs;
-								return Token(TokenType::Number, result, position);
-							}
-							case 2:
-							{
-								int32_t lhs = std::get<int32_t>(startingTok.Value);
-								Token op = NextToken();
-								TrimLeft();
-								ShiftRight();
-								Token nextTok = NextToken();
-								int32_t rhs = std::get<int32_t>(nextTok.Value);
-								int32_t result = lhs * rhs;
-								return Token(TokenType::Number, result, position);
-							}
-							case 3:
-							{
-								int32_t lhs = std::get<int32_t>(startingTok.Value);
-								Token op = NextToken();
-								TrimLeft();
-								ShiftRight();
-								Token nextTok = NextToken();
-								int32_t rhs = std::get<int32_t>(nextTok.Value);
-								ASSERT(rhs != 0, "Invalid denominator!");
-								int32_t result = lhs / rhs;
-								return Token(TokenType::Number, result, position);
-							}
-							case 4:
-							{
-								ASSERT(false, "int32_t->operator= not implemented yet");
-								break;
-							}
-						}
-
-						break;
-					}
-					case 1:
-					{
-						switch (opIndex)
-						{
-							case 0:
-							{
-								std::string lhs = std::get<std::string>(startingTok.Value);
-								Token op = NextToken();
-								TrimLeft();
-								ShiftRight();
-								Token nextTok = NextToken();
-								std::string rhs = std::get<std::string>(nextTok.Value);
-								std::string result = lhs + rhs;
-								return Token(TokenType::String, result, position);
-							}
-							case 1:
-							{
-								break;
-							}
-							case 2:
-							{
-								break;
-							}
-							case 3:
-							{
-								break;
-							}
-							case 4:
-							{
-								ASSERT(false, "std::string->operator= not implemented yet");
-								break;
-							}
-						}
-
-						break;
-					}
-				}
-			}
-
-			return startingTok;
-		};
 
 		if (first == '(')
 		{
@@ -309,10 +327,10 @@ public:
 		{
 			ShiftRight();
 
-			while (Current() != '"')
+			while (CursorActive() && Current() != '"')
 				ShiftRight();
 
-			if (Current() != '"')
+			if (CursorAtEnd() || Current() != '"')
 			{
 				COMPILER_ERROR("Error: %s, expected end of string literal", position.Display().c_str());
 			}
@@ -326,25 +344,25 @@ public:
 				value.erase(value.end() - 1);
 				
 				Token token = Token(TokenType::String, value, position);
-				return checkForExpr(token);
+				return VisitNode(token, position);
 			}
 		}
-		else if (isdigit(first))
+		else if (std::isdigit(first))
 		{
 			ShiftRight();
 
-			while (isdigit(Current()))
+			while (CursorActive() && std::isdigit(Current()))
 				ShiftRight();
 
 			int32_t value = std::atoi(m_Source.substr(start, m_Cursor - start).c_str());
 			Token token = Token(TokenType::Number, value, position);
-			return checkForExpr(token);
+			return VisitNode(token, position);
 		}
-		else if (isalnum(first))
+		else if (std::isalnum(first))
 		{
 			ShiftRight();
 
-			while (isalnum(Current()))
+			while (CursorActive() && std::isalnum(Current()))
 				ShiftRight();
 
 			std::string funName = m_Source.substr(start, m_Cursor - start);
@@ -352,33 +370,31 @@ public:
 			{
 				std::vector<Token> args;
 				Token oparen = NextToken();
-				Token arg = checkForExpr(NextToken());
+				Token arg = VisitNode(NextToken(), position);
 				bool first = true;
 				
-				while (arg.Type != TokenType::CParen)
+				while (CursorActive() && arg.Type != TokenType::CParen)
 				{	
 					args.push_back(arg);
 
 					Token next = NextToken();
-					if (next.Type == TokenType::CParen)
-					{
-						next = NextToken();
-					}
-
-					if (CursorAtEnd() || !next)
+					if (!next)
 						break;
 
-					arg = checkForExpr(next);
+					if (next.Type == TokenType::CParen)
+						break;
+
+					if (CursorAtEnd())
+						break;
+
+					arg = VisitNode(next, position);
 				}
 
 				FuncDef func(funName, args);
 				Token returnValue = func.Execute();
 
 				if (returnValue.Type != TokenType::None)
-				{
-					std::cout << returnValue << '\n';
 					return returnValue;
-				}
 			}
 
 			return Token(TokenType::Name, funName, position);
@@ -406,24 +422,77 @@ private:
 	uint32_t m_Row = 0;
 };
 
-int main()
+void PrintHelp()
+{
+	std::cout << "HELP:\n\n" << "Arguments:\n"
+		<< "-r          open in repl mode\n"
+		<< "<filepath>  run a specific python file\n";
+}
+
+int ReplMode()
+{
+	std::cout << R"(Python 3.11 [MSC v.1929 64 bit (AMD64)] on win32
+Type "help", "copyright", "credits" or "license" for more information.)" << "\n";
+
+	std::string line;
+	std::cout << ">>> ";
+	
+	while (std::getline(std::cin, line))
+	{
+		if (line == "exit")
+			return 0;
+
+		Lexer lexer = Lexer("<stdin>", line);
+		Token token = lexer.NextToken();
+
+		std::variant<int32_t, std::string> value;
+		while (token)
+		{
+			switch (token.Type)
+			{
+				case TokenType::Number:
+					std::cout << std::get<int32_t>(token.Value) << '\n';
+					break;
+				default:
+					std::cout << std::get<std::string>(token.Value) << '\n';
+					break;
+			}
+
+			token = lexer.NextToken();
+		}
+
+		std::cout << ">>> ";
+	}
+}
+
+int OpenFile(const std::string& filepath)
 {
 	if (!std::filesystem::exists(filepath))
-		DEFERED_EXIT(-1, "Filepath doesn't exist!\n");
+	{
+		std::cout << "Filepath doesn't exist!\n";
+		return -1;
+	}
 
 	std::fstream stream(filepath);
 	if (!stream.is_open())
-		DEFERED_EXIT(-1, "Failed to open file: '%s'\n", filepath);
+	{
+		std::cout << "Failed to open file: " << filepath << '\n';
+		return -1;
+	}
 
 	stream.seekg(0, std::ios::end);
 	size_t size = stream.tellg();
 	if (size == 0)
-		DEFERED_EXIT(-1, "File was empty!\n");
+	{
+		std::cout << "File was empty!\n";
+		return -1;
+	}
 
 	std::string contents = "";
 	contents.resize(size);
 	stream.seekg(0, std::ios::beg);
 	stream.read(contents.data(), size);
+	stream.close();
 
 	std::string filename = std::filesystem::path(filepath).filename().string();
 
@@ -435,6 +504,30 @@ int main()
 		token = lexer.NextToken();
 	}
 
-	std::cin.get();
 	return 0;
+}
+
+int main(int argc, char* argv[])
+{
+	if (argc == 1)
+	{
+		PrintHelp();
+		std::cin.get();
+		return -1;
+	}
+
+	std::string arg = argv[1];
+
+	if (arg == "-r")
+	{
+		return ReplMode();
+	}
+	else if (std::filesystem::exists(arg))
+	{
+		int exitCode = OpenFile(arg);
+		std::cin.get();
+		return exitCode;
+	}
+
+	return -1;
 }
